@@ -1,0 +1,62 @@
+.container {
+  max-width: 100px; /* Menentukan lebar maksimal container */
+  margin: 0 auto; /* Memposisikan container di tengah halaman */
+  padding: 20px;
+}
+
+.card {
+  background-color: #f8f9fa; /* Warna background card */
+  border-radius: 15px; /* Membuat sudut card melengkung */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); /* Efek bayangan card */
+  transition: transform 0.3s ease; /* Efek transisi */
+}
+.position-relative {
+  position: relative; /* Membuat posisi relatif untuk container */
+}
+
+.overlay {
+  position: absolute; /* Posisi overlay di atas gambar */
+  top: 0; /* Menyesuaikan overlay ke atas */
+  left: 0; /* Menyesuaikan overlay ke kiri */
+  right: 0; /* Menyesuaikan overlay ke kanan */
+  bottom: 0; /* Menyesuaikan overlay ke bawah */
+  background-color: hwb(
+    152 18% 15% / 0.5
+  ); /* Bayangan hijau dengan transparansi */
+  border-radius: 5px; /* Jika ingin sudut melengkung mengikuti gambar */
+  z-index: 1; /* Menempatkan overlay di atas gambar */
+}
+
+/* Tambahkan jika ingin mengatur efek hover pada gambar */
+.position-relative img {
+  transition: transform 0.3s ease; /* Efek transisi saat hover */
+}
+
+.position-relative:hover img {
+  transform: scale(1.05); /* Membesarkan gambar sedikit saat di-hover */
+}
+
+form .row > div {
+  margin-bottom: 1rem; /* Adjust this value for the desired space between elements */
+}
+
+/* Optional: Fine-tune spacing on larger screens */
+@media (min-width: 768px) {
+  form .row > div {
+    margin-bottom: 0.2rem;
+  }
+}
+
+/* Style for the eye icon inside the password input */
+.password-wrapper {
+  position: relative;
+}
+
+.password-wrapper .bi {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  cursor: pointer;
+  font-size: 1.2rem; /* Adjust the size of the icon */
+}

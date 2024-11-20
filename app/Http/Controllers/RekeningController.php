@@ -96,30 +96,35 @@ class RekeningController extends Controller
      * Menampilkan daftar nomor rekening.
      */
     public function index(Request $request)
-    {
-        Log::info('Rekening index request initiated');
+{
+    Log::info('Rekening index request initiated');
 
-        $user = auth()->user();
+    $user = auth()->user();
 
-        if (!$user) {
-            Log::error('User not authenticated for index.');
-            return response()->json([
-                'status' => 'error',
-                'pesan' => 'User not authenticated.'
-            ], 401);
-        }
-
-        try {
-            $rekenings = Rekening::where('user_id', $user->id)->get();
-            Log::info('Rekening fetched successfully', ['user_id' => $user->id, 'rekenings_count' => $rekenings->count()]);
-            return response()->json($rekenings, 200);
-        } catch (\Exception $e) {
-            Log::error('Failed to fetch rekening data', ['error' => $e->getMessage()]);
-            return response()->json([
-                'status' => 'error',
-                'pesan' => 'Gagal memuat data rekening'
-            ], 500);
-        }
+    if (!$user) {
+        Log::error('User not authenticated for index.');
+        return response()->json([
+            'status' => 'error',
+            'pesan' => 'User not authenticated.'
+        ], 401);
     }
+
+    try {
+        $rekenings = Rekening::where('user_id', $user->id)->get();
+
+        return response()->json([
+            'status' => 'success',
+            'pesan' => $rekenings->isEmpty() ? 'Tidak ada data rekening.' : 'Data rekening ditemukan.',
+            'data' => $rekenings
+        ], 200);
+    } catch (\Exception $e) {
+        Log::error('Failed to fetch rekening data', ['error' => $e->getMessage()]);
+        return response()->json([
+            'status' => 'error',
+            'pesan' => 'Gagal memuat data rekening'
+        ], 500);
+    }
+}
+
 
 }

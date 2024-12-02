@@ -332,61 +332,78 @@ public function updateApprovalKetuaSimpananSukarela($id, $status)
 
             // Kirim permintaan notifikasi menggunakan cURL
             $ch = curl_init($notificationUrl);
-            $ch = curl_init($notificationUrl);
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, $notificationHeaders);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, $notificationRequestBody);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $notificationHeaders);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $notificationRequestBody);
 
-            $notificationResponse = curl_exec($ch);
+    $notificationResponse = curl_exec($ch);
 
-            // Log cURL informasi jika terjadi error
-            if (curl_errno($ch)) {
-                Log::error("cURL Error: " . curl_error($ch));
-            }
-
-            curl_close($ch);
-
-            $decodedNotificationResponse = json_decode($notificationResponse, true);
-
-            // Log respons notifikasi dari DOKU
-            Log::info("Notification Response Raw: " . $notificationResponse);
-            Log::info("Notification Response Decoded: ", $decodedNotificationResponse);
-
-            // Cek apakah respons berhasil
-            if (!isset($decodedNotificationResponse['responseCode']) || $decodedNotificationResponse['responseCode'] !== '200') {
-                $errorMessage = $decodedNotificationResponse['responseMessage'] ?? 'Unknown error';
-                Log::error("Failed to get payment notification from DOKU: " . $errorMessage);
-                throw new \Exception('Failed to get payment notification from DOKU: ' . $errorMessage);
-            }
-
-            // Ambil status pembayaran dari respons notifikasi
-            if (!isset($decodedNotificationResponse['paymentStatus'])) {
-                Log::error("Payment status not found in notification response");
-                throw new \Exception('Payment status not found in notification response');
-            }
-
-            $paymentStatus = $decodedNotificationResponse['paymentStatus'];
-
-            // Log status pembayaran yang diterima
-            Log::info("Payment Status Received: " . $paymentStatus);
-
-            // Simpan data Virtual Account jika respon valid
-            $simpanan->virtual_account = $virtualAccountData['virtualAccountNo'];
-            $simpanan->expired_at = $virtualAccountData['expiredDate'];
-            $simpanan->status_payment = $paymentStatus; // Update status_payment dari respons
-                    }
-            $simpanan->save();
-
-            // Log pembaruan berhasil
-            Log::info("Updated status_payment to '" . $paymentStatus . "' for simpanan_sukarela ID: " . $simpanan->id);
-
-            return response()->json(['message' => 'Approval Ketua status updated and virtual account created successfully!'], 200);
-
-    } catch (\Exception $e) {
-        Log::error("Failed to process: " . $e->getMessage());
-        return response()->json(['message' => 'Failed to update status or create virtual account!', 'error' => $e->getMessage()], 500);
+    // Log cURL informasi jika terjadi error
+    if (curl_errno($ch)) {
+        Log::error("cURL Error: " . curl_error($ch));
     }
+
+    curl_close($ch);
+
+    $decodedNotificationResponse = json_decode($notificationResponse, true);
+
+    // Log respons notifikasi dari DOKU
+    Log::info("Notification Response Raw: " . $notificationResponse);
+    Log::info("Notification Response Decoded: ", $decodedNotificationResponse);
+
+    // Cek apakah respons berhasil
+    if (!isset($decodedNotificationResponse['responseCode']) || $decodedNotificationResponse['responseCode'] !== '200') {
+        $errorMessage = $decodedNotificationResponse['responseMessage'] ?? 'Unknown error';
+        Log::error("Failed to get payment notification from DOKU: " . $errorMessage);
+        return response()->json([
+            'status' => 'error',
+            'message' => 'Failed to get payment notification from DOKU',
+            'details' => $errorMessage,
+            'response' => $decodedNotificationResponse
+        ], 400);
+    }
+
+    // Ambil status pembayaran dari respons notifikasi
+    if (!isset($decodedNotificationResponse['paymentStatus'])) {
+        Log::error("Payment status not found in notification response");
+        return response()->json([
+            'status' => 'error',
+            'message' => 'Payment status not found in notification response',
+            'response' => $decodedNotificationResponse
+        ], 400);
+    }
+
+    $paymentStatus = $decodedNotificationResponse['paymentStatus'];
+
+    // Log status pembayaran yang diterima
+    Log::info("Payment Status Received: " . $paymentStatus);
+
+    // Simpan data Virtual Account jika respon valid
+    $simpanan->virtual_account = $virtualAccountData['virtualAccountNo'];
+    $simpanan->expired_at = $virtualAccountData['expiredDate'];
+    $simpanan->status_payment = $paymentStatus; // Update status_payment dari respons
+    }
+    $simpanan->save();
+
+    // Log pembaruan berhasil
+    Log::info("Updated status_payment to '" . $paymentStatus . "' for simpanan_sukarela ID: " . $simpanan->id);
+
+    // Kembalikan respons DOKU ke front-end
+    return response()->json([
+        'status' => 'success',
+        'message' => 'Notification retrieved and processed successfully',
+        'response' => $decodedNotificationResponse
+    ], 200);
+
+} catch (\Exception $e) {
+    Log::error("Failed to process: " . $e->getMessage());
+    return response()->json([
+        'status' => 'error',
+        'message' => 'Failed to update status or create virtual account!',
+        'error' => $e->getMessage()
+    ], 500);
+}
 }
 
 

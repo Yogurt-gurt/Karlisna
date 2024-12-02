@@ -347,57 +347,39 @@ protected function getBankCode($bankName)
 }
 
 
+
 public function handleNotification(Request $request)
-{
-    try {
-        $headers = getallheaders();
-        $body = file_get_contents('php://input');
-        $notificationPath = '/api/notifications'; // Path sesuai endpoint notifikasi Anda
-        $secretKey = env('DOKU_SECRET_KEY'); // Ambil Secret Key dari .env
+    {
+        Log::info('Notification received', ['data' => $request->all()]);
 
-        $digest = base64_encode(hash('sha256', $body, true));
-        $rawSignature = "Client-Id:{$headers['Client-Id']}\n"
-            . "Request-Id:{$headers['Request-Id']}\n"
-            . "Request-Timestamp:{$headers['Request-Timestamp']}\n"
-            . "Request-Target:{$notificationPath}\n"
-            . "Digest:{$digest}";
-
-        $calculatedSignature = 'HMACSHA256=' . base64_encode(hash_hmac('sha256', $rawSignature, $secretKey, true));
-
-        if ($calculatedSignature !== $headers['Signature']) {
-            Log::error('Invalid Signature', [
-                'expected' => $calculatedSignature,
-                'received' => $headers['Signature'],
-            ]);
-            return response()->json(['message' => 'Invalid Signature'], 400);
+        // Validasi signature untuk memastikan notifikasi dari DOKU
+        $calculatedSignature = hash_hmac('sha256', $request->input('order.invoice_number'), env('DOKU_SECRET_KEY'));
+        if ($request->header('Signature') !== $calculatedSignature) {
+            return response()->json(['message' => 'Invalid signature'], 400);
         }
 
-        $data = json_decode($body, true);
+        // Proses data notifikasi
+        $virtualAccount = $request->input('virtual_account_info.virtual_account_number');
+        $transactionStatus = $request->input('transaction.status');
 
-        if (isset($data['virtual_account_info']['virtual_account_number']) && isset($data['transaction']['status'])) {
-            $virtualAccount = $data['virtual_account_info']['virtual_account_number'];
-            $transactionStatus = $data['transaction']['status'];
+        // Temukan transaksi di database
+        $transaction = SimpananSukarela::where('virtual_account', $virtualAccount)->first();
 
-            // Simpan dan perbarui transaksi di database
-            $transaction = SimpananSukarela::where('virtual_account', $virtualAccount)->first();
-            if ($transaction) {
-                $transaction->update(['status_payment' => $transactionStatus]);
-            }
-
-            // Kirim respons ke front-end
-            return response()->json([
-                'message' => 'Notification processed successfully',
-                'data' => $data,
-            ]);
+        if (!$transaction) {
+            Log::error('Transaction not found', ['virtual_account' => $virtualAccount]);
+            return response()->json(['message' => 'Transaction not found'], 404);
         }
 
-        return response()->json(['message' => 'Invalid payload'], 400);
-    } catch (\Exception $e) {
-        return response()->json(['message' => 'Error processing notification', 'error' => $e->getMessage()], 500);
+        // Perbarui status pembayaran
+        $transaction->update([
+            'status_payment' => $transactionStatus === 'SUCCESS' ? 'Paid' : 'Failed',
+        ]);
+
+        Log::info('Transaction updated', ['transaction' => $transaction]);
+
+        // Kirim respons sukses ke DOKU
+        return response()->json(['message' => 'Notification processed successfully'], 200);
     }
-}
-
-
 
 
 

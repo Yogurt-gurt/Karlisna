@@ -201,5 +201,6 @@ Route::get('/view-token-response', [DokuController::class, 'getToken']);
 
 use App\Http\Controllers\KetuaController;
 
-Route::post('/notifications', [KetuaController::class, 'handleNotification']);
+Route::post('/payment-notification', [KetuaController::class, 'handleNotification']);
+
 

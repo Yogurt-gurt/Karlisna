@@ -80,6 +80,7 @@
                 @endforeach
             </tbody>
         </table>
+        <div id="response-message" class="alert" style="display: none;"></div>
     </div>
     <nav aria-label="Page navigation example">
         <ul class="pagination">
@@ -147,8 +148,14 @@ function updateStatusPinjaman(status) {
                     data: {
                         _token: "{{ csrf_token() }}"
                     },
-                    success: function(response) {
+                     success: function(response) {
                         console.log("Response sukses: ", response); // Debugging respons
+                        // Menampilkan pesan sukses
+                        const responseMessage = document.getElementById('response-message');
+                        responseMessage.style.display = 'block';
+                        responseMessage.className = 'alert alert-success';
+                        responseMessage.innerText = successMessage;
+
                         Swal.fire({
                             title: "Success!",
                             text: successMessage,
@@ -159,6 +166,12 @@ function updateStatusPinjaman(status) {
                     },
                     error: function(xhr) {
                         console.log("Response error: ", xhr); // Debugging error
+                        // Menampilkan pesan error
+                        const responseMessage = document.getElementById('response-message');
+                        responseMessage.style.display = 'block';
+                        responseMessage.className = 'alert alert-danger';
+                        responseMessage.innerText = `Terjadi kesalahan: ${xhr.responseText}`;
+
                         Swal.fire("Error!", `Terjadi kesalahan: ${xhr.responseText}`, "error");
                     }
                 });

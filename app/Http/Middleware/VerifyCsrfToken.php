@@ -13,5 +13,6 @@ class VerifyCsrfToken extends Middleware
      */
     protected $except = [
         'api/register',
+        'api/payment-notification', // Tambahkan path Notification URL
     ];
 }

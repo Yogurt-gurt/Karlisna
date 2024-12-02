@@ -284,126 +284,17 @@ public function updateApprovalKetuaSimpananSukarela($id, $status)
 
             Log::info("Virtual Account Data: ", $virtualAccountData);
 
-
-            // Permintaan ke DOKU untuk notifikasi status pembayaran
-            $notificationUrl = "https://revisi001.vahry.my.id/v1.1/transfer-va/payment";
-
-            // Ambil nominal dari database dan format menjadi desimal dengan dua digit
-            $paidAmountValue = number_format((float) $simpanan->nominal, 2, '.', '');
-
-            // Log nominal yang digunakan untuk notifikasi
-            Log::info("Paid Amount Value: " . $paidAmountValue);
-
-            $notificationBody = [
-                "partnerServiceId" => $virtualAccountData['partnerServiceId'], // Ambil dari data yang diterima
-                "customerNo" => $virtualAccountData['customerNo'],
-                "virtualAccountNo" => $virtualAccountData['virtualAccountNo'],
-                "virtualAccountName" => $simpanan->user->name,
-                "trxId" => $virtualAccountData['trxId'],
-                "paidAmount" => [
-                    "value" => $paidAmountValue, // Mulai dengan jumlah 0 untuk memeriksa status
-                    "currency" => "IDR"
-                ],
-                "additionalInfo" => [
-                    "channel" => "VIRTUAL_ACCOUNT_" . $channelBank,
-                ]
-            ];
-
-            $notificationRequestBody = json_encode($notificationBody, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-
-            // Log permintaan notifikasi
-            Log::info("Notification Request Body to DOKU: " . $notificationRequestBody);
-
-            // Buat signature untuk permintaan notifikasi
-            $notificationStringToSign = $httpMethod . ":" . "/v1.1/transfer-va/payment" . ":" . $accessToken . ":" . hash('sha256', $notificationRequestBody) . ":" . $timestamp;
-
-            $notificationSignature = base64_encode(hash_hmac('sha512', $notificationStringToSign, env('DOKU_SECRET_KEY'), true));
-            $timestamps = now()->format('Y-m-d\TH:i:sP'); 
-            // Header untuk permintaan notifikasi
-            $notificationHeaders = [
-                "X-TIMESTAMP: " . $timestamps,
-                "X-SIGNATURE: " . $notificationSignature,
-                "X-PARTNER-ID: " . $partnerId,
-                "X-EXTERNAL-ID: " . $externalId,
-                "CHANNEL-ID: " . $channelId,
-                "Authorization: Bearer " . $accessToken,
-                "Content-Type: application/json",
-            ];
-
-            // Kirim permintaan notifikasi menggunakan cURL
-            $ch = curl_init($notificationUrl);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, $notificationHeaders);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $notificationRequestBody);
-
-    $notificationResponse = curl_exec($ch);
-
-    // Log cURL informasi jika terjadi error
-    if (curl_errno($ch)) {
-        Log::error("cURL Error: " . curl_error($ch));
+            // Simpan data Virtual Account jika respon valid
+            $simpanan->virtual_account = $virtualAccountData['virtualAccountNo'];
+            $simpanan->expired_at = $virtualAccountData['expiredDate'];
+            $simpanan->status_payment = 'Menunggu Pembayaran';
+        }
+                    $simpanan->save();
+        return response()->json(['message' => 'Approval Ketua status updated and virtual account created successfully!'], 200);
+    } catch (\Exception $e) {
+        Log::error("Failed to process: " . $e->getMessage());
+        return response()->json(['message' => 'Failed to update status or create virtual account!', 'error' => $e->getMessage()], 500);
     }
-
-    curl_close($ch);
-
-    $decodedNotificationResponse = json_decode($notificationResponse, true);
-
-    // Log respons notifikasi dari DOKU
-    Log::info("Notification Response Raw: " . $notificationResponse);
-    Log::info("Notification Response Decoded: ", $decodedNotificationResponse);
-
-    // Cek apakah respons berhasil
-    if (!isset($decodedNotificationResponse['responseCode']) || $decodedNotificationResponse['responseCode'] !== '200') {
-        $errorMessage = $decodedNotificationResponse['responseMessage'] ?? 'Unknown error';
-        Log::error("Failed to get payment notification from DOKU: " . $errorMessage);
-        return response()->json([
-            'status' => 'error',
-            'message' => 'Failed to get payment notification from DOKU',
-            'details' => $errorMessage,
-            'response' => $decodedNotificationResponse
-        ], 400);
-    }
-
-    // Ambil status pembayaran dari respons notifikasi
-    if (!isset($decodedNotificationResponse['paymentStatus'])) {
-        Log::error("Payment status not found in notification response");
-        return response()->json([
-            'status' => 'error',
-            'message' => 'Payment status not found in notification response',
-            'response' => $decodedNotificationResponse
-        ], 400);
-    }
-
-    $paymentStatus = $decodedNotificationResponse['paymentStatus'];
-
-    // Log status pembayaran yang diterima
-    Log::info("Payment Status Received: " . $paymentStatus);
-
-    // Simpan data Virtual Account jika respon valid
-    $simpanan->virtual_account = $virtualAccountData['virtualAccountNo'];
-    $simpanan->expired_at = $virtualAccountData['expiredDate'];
-    $simpanan->status_payment = $paymentStatus; // Update status_payment dari respons
-    }
-    $simpanan->save();
-
-    // Log pembaruan berhasil
-    Log::info("Updated status_payment to '" . $paymentStatus . "' for simpanan_sukarela ID: " . $simpanan->id);
-
-    // Kembalikan respons DOKU ke front-end
-    return response()->json([
-        'status' => 'success',
-        'message' => 'Notification retrieved and processed successfully',
-        'response' => $decodedNotificationResponse
-    ], 200);
-
-} catch (\Exception $e) {
-    Log::error("Failed to process: " . $e->getMessage());
-    return response()->json([
-        'status' => 'error',
-        'message' => 'Failed to update status or create virtual account!',
-        'error' => $e->getMessage()
-    ], 500);
-}
 }
 
 

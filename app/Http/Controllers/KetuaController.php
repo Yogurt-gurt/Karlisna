@@ -347,69 +347,61 @@ protected function getBankCode($bankName)
 }
 
 
-public function handlePaymentStatus(Request $request)
+public function handleNotification(Request $request)
 {
-    // Log semua data yang diterima untuk debugging
-    Log::info('DOKU Webhook received', ['data' => $request->all()]);
-
     try {
-        // Ambil data yang relevan dari request
-        $partnerServiceId = $request->input('partnerServiceId');
-        $customerNo = $request->input('customerNo');
-        $virtualAccountNo = $request->input('virtualAccountNo');
-        $trxId = $request->input('trxId');
-        $paymentStatus = $request->input('transaction.status'); // Status pembayaran dari DOKU
-        $amountPaid = $request->input('paidAmount.value'); // Nominal pembayaran
+        $headers = getallheaders();
+        $body = file_get_contents('php://input');
+        $notificationPath = '/api/notifications'; // Path notifikasi Anda
+        $secretKey = env('DOKU_SECRET_KEY'); // Ambil Secret Key dari .env
 
-        Log::info('Received payment details from DOKU', [
-            'partnerServiceId' => $partnerServiceId,
-            'customerNo' => $customerNo,
-            'virtualAccountNo' => $virtualAccountNo,
-            'trxId' => $trxId,
-            'paymentStatus' => $paymentStatus,
-            'amountPaid' => $amountPaid,
-        ]);
+        // Hitung Digest
+        $digest = base64_encode(hash('sha256', $body, true));
 
-        // Cari transaksi berdasarkan virtualAccountNo
-        $transaction = SimpananSukarela::where('virtual_account', $virtualAccountNo)->first();
+        // Susun Raw Signature
+        $rawSignature = "Client-Id:{$headers['Client-Id']}\n"
+            . "Request-Id:{$headers['Request-Id']}\n"
+            . "Request-Timestamp:{$headers['Request-Timestamp']}\n"
+            . "Request-Target:{$notificationPath}\n"
+            . "Digest:{$digest}";
 
-        if ($transaction) {
-            Log::info('Transaction found in database', ['transaction' => $transaction]);
+        // Hitung Final Signature
+        $calculatedSignature = 'HMACSHA256=' . base64_encode(hash_hmac('sha256', $rawSignature, $secretKey, true));
 
-            // Perbarui status transaksi dan jumlah pembayaran berdasarkan data yang diterima
-            $transaction->update([
-                'status_payment' => $paymentStatus,
-                'paid_amount' => $amountPaid,
+        // Validasi Signature
+        if ($calculatedSignature !== $headers['Signature']) {
+            Log::error('Invalid Signature', [
+                'expected' => $calculatedSignature,
+                'received' => $headers['Signature'],
             ]);
-
-            Log::info('Transaction status updated successfully', [
-                'transaction_id' => $transaction->id,
-                'new_status' => $paymentStatus,
-                'paid_amount' => $amountPaid,
-            ]);
-        } else {
-            Log::error('Transaction not found for virtual_account', ['virtualAccountNo' => $virtualAccountNo]);
-
-            return response()->json([
-                'message' => 'Transaction not found',
-                'virtualAccountNo' => $virtualAccountNo,
-            ], 404);
+            return response()->json(['message' => 'Invalid Signature'], 400);
         }
 
-        return response()->json([
-            'message' => 'Transaction status updated successfully',
-            'status' => $paymentStatus,
-        ], 200);
-    } catch (\Exception $e) {
-        Log::error('Error processing payment status', ['error' => $e->getMessage()]);
+        // Proses Data Jika Signature Valid
+        $data = json_decode($body, true);
+        Log::info('Valid Notification Received', $data);
 
-        return response()->json([
-            'message' => 'Failed to process payment status',
-            'error' => $e->getMessage(),
-        ], 500);
+        // Lakukan operasi berdasarkan status pembayaran
+        if (isset($data['transaction']['status']) && isset($data['order']['invoice_number'])) {
+            $invoiceNumber = $data['order']['invoice_number'];
+            $transactionStatus = $data['transaction']['status'];
+
+            // Perbarui status di database
+            $transaction = SimpananSukarela::where('invoice_number', $invoiceNumber)->first();
+            if ($transaction) {
+                $transaction->update(['status_payment' => $transactionStatus]);
+                Log::info('Transaction status updated', ['invoice' => $invoiceNumber, 'status' => $transactionStatus]);
+            } else {
+                Log::error('Transaction not found for invoice', ['invoice' => $invoiceNumber]);
+            }
+        }
+
+        return response()->json(['message' => 'Notification processed successfully'], 200);
+    } catch (\Exception $e) {
+        Log::error('Error handling notification', ['error' => $e->getMessage()]);
+        return response()->json(['message' => 'Error processing notification'], 500);
     }
 }
-
 
 
 

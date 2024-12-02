@@ -284,13 +284,94 @@ public function updateApprovalKetuaSimpananSukarela($id, $status)
 
             Log::info("Virtual Account Data: ", $virtualAccountData);
 
+
+            // Permintaan ke DOKU untuk notifikasi status pembayaran
+            $notificationUrl = "https://api-sandbox.doku.com/v1.1/transfer-va/payment";
+
+            // Ambil nominal dari database dan format menjadi desimal dengan dua digit
+            $paidAmountValue = number_format((float) $simpanan->nominal, 2, '.', '');
+
+            // Log nominal yang digunakan untuk notifikasi
+            Log::info("Paid Amount Value: " . $paidAmountValue);
+
+            $notificationBody = [
+                "partnerServiceId" => $virtualAccountData['partnerServiceId'], // Ambil dari data yang diterima
+                "customerNo" => $virtualAccountData['customerNo'],
+                "virtualAccountNo" => $virtualAccountData['virtualAccountNo'],
+                "virtualAccountName" => $simpanan->user->name,
+                "trxId" => $virtualAccountData['trxId'],
+                "paidAmount" => [
+                    "value" => $paidAmountValue, // Mulai dengan jumlah 0 untuk memeriksa status
+                    "currency" => "IDR"
+                ],
+                "additionalInfo" => [
+                    "channel" => "VIRTUAL_ACCOUNT_" . $channelBank,
+                ]
+            ];
+
+            $notificationRequestBody = json_encode($notificationBody, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+            // Log permintaan notifikasi
+            Log::info("Notification Request Body to DOKU: " . $notificationRequestBody);
+
+            // Buat signature untuk permintaan notifikasi
+            $notificationStringToSign = $httpMethod . ":" . "/v1.1/transfer-va/payment" . ":" . $accessToken . ":" . hash('sha256', $notificationRequestBody) . ":" . $timestamp;
+
+            $notificationSignature = base64_encode(hash_hmac('sha512', $notificationStringToSign, env('DOKU_SECRET_KEY'), true));
+
+            // Header untuk permintaan notifikasi
+            $notificationHeaders = [
+                "X-TIMESTAMP: " . $timestamp,
+                "X-SIGNATURE: " . $notificationSignature,
+                "X-PARTNER-ID: " . $partnerId,
+                "X-EXTERNAL-ID: " . $externalId,
+                "CHANNEL-ID: " . $channelId,
+                "Authorization: Bearer " . $accessToken,
+                "Content-Type: application/json",
+            ];
+
+            // Kirim permintaan notifikasi menggunakan cURL
+            $ch = curl_init($notificationUrl);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $notificationHeaders);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $notificationRequestBody);
+
+            $notificationResponse = curl_exec($ch);
+            curl_close($ch);
+
+            $decodedNotificationResponse = json_decode($notificationResponse, true);
+
+            // Log respons notifikasi
+            Log::info("Notification Response from DOKU: ", $decodedNotificationResponse);
+
+            // Cek apakah respons berhasil
+            if (!isset($decodedNotificationResponse['responseCode']) || $decodedNotificationResponse['responseCode'] !== '200') {
+                throw new \Exception('Failed to get payment notification from DOKU: ' . ($decodedNotificationResponse['responseMessage'] ?? 'Unknown error'));
+            }
+
+            // Ambil status pembayaran dari respons notifikasi
+            if (!isset($decodedNotificationResponse['paymentStatus'])) {
+                throw new \Exception('Payment status not found in notification response');
+            }
+
+            $paymentStatus = $decodedNotificationResponse['paymentStatus'];
+
+            // Log status pembayaran
+            Log::info("Payment Status from DOKU: " . $paymentStatus);
+
             // Simpan data Virtual Account jika respon valid
             $simpanan->virtual_account = $virtualAccountData['virtualAccountNo'];
             $simpanan->expired_at = $virtualAccountData['expiredDate'];
-            $simpanan->status_payment = 'Menunggu Pembayaran';
-        }
-                    $simpanan->save();
-        return response()->json(['message' => 'Approval Ketua status updated and virtual account created successfully!'], 200);
+            $simpanan->status_payment = $paymentStatus; // Update status_payment dari respons
+                    }
+            $simpanan->save();
+
+            // Log pembaruan berhasil
+            Log::info("Updated status_payment to '" . $paymentStatus . "' for simpanan_sukarela ID: " . $simpanan->id);
+
+            return response()->json(['message' => 'Approval Ketua status updated and virtual account created successfully!'], 200);
+
     } catch (\Exception $e) {
         Log::error("Failed to process: " . $e->getMessage());
         return response()->json(['message' => 'Failed to update status or create virtual account!', 'error' => $e->getMessage()], 500);

@@ -2,279 +2,507 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\information_registrasi;
+use App\Mail\Mailkonfir;
+use App\Models\Anggota;
+use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
-use App\Models\Transaction;
-use App\Models\SimpananBerjangka;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
+use App\Models\Pinjaman;
+use App\Models\RekeningSimpananSukarela;
 use App\Models\SimpananSukarela;
+use Illuminate\Support\Facades\Log;
 
-class PaymentController extends Controller
+class KetuaController extends Controller
 {
-    public function showPaymentPage()
+    public function pinjaman()
     {
-        return view('payment_page');
+        return view('pages.ketua.pinjaman.approve_pinjaman', [
+            'title' => 'Data Approve Pinjaman',
+            'pinjamans' => Pinjaman::all()
+        ]);
     }
 
-    public function processPayment(Request $request)
+
+    public function indexsimpanansukarela()
     {
-        // Ambil amount dan path dari form
-        $amount = $request->input('amount');
-        $path = $request->input('path');
-        $isApi = $request->input('isApi', false);
-
-        // Generate invoice number
-        $invoiceNumber = 'INV-' . date('Ymd') . '-' . Str::random(6);
-        $merchantUniqueReference = substr(Str::random(12), 0, 12);
-
-        // Simpan transaksi baru ke dalam database
-        $transaction = SimpananSukarela::create([
-            'invoice_number' => $invoiceNumber,
-            'amount' => $amount,
-            'status' => 'pending' // Set status awal menjadi pending
+        return view('pages.ketua.simpanan.index', [
+            'title' => 'Data Pengajuan Simpanan Sukarela',
+            'simpananSukarelas' => SimpananSukarela::with('rekeningSimpananSukarela', 'user')->get(),
         ]);
 
-        // Panggil sendRequest untuk mendapatkan Virtual Account
-        $virtualAccountResponse = $this->sendRequest($amount, $invoiceNumber, $path, $merchantUniqueReference);
-
-        // Cek apakah ada error atau tidak
-        if (isset($virtualAccountResponse['error'])) {
-            $transaction->update(['status' => 'failed']);
-            $virtualAccount = $virtualAccountResponse['message'];
-        } elseif (isset($virtualAccountResponse['virtual_account_info']['virtual_account_number'])) {
-            $transaction->update([
-                'virtual_account_number' => $virtualAccountResponse['virtual_account_info']['virtual_account_number'],
-                'status' => 'pending' 
-            ]);
-
-            $virtualAccount = $virtualAccountResponse['virtual_account_info']['virtual_account_number'];
-        } else {
-            $virtualAccount = 'Unexpected response format from API';
-            $transaction->update(['status' => 'failed']);
-        }
-
-        if ($isApi) {
-            return response()->json([
-                'virtualAccount' => $virtualAccount,
-                'amount' => $amount,
-                'invoice_number' => $invoiceNumber
-            ]);
-        }
-
-        return view('payment_page_result', ['virtualAccount' => $virtualAccount, 'amount' => $amount]);
     }
 
-    public function sendRequest($amount, $invoiceNumber, $path, $merchantUniqueReference)
+
+
+    public function diterima($id, $status)
     {
-        $clientId = "BRN-0202-1728580392112";
-        $requestId = (string) Str::uuid();
-        $requestDate = now()->setTimezone('UTC')->format('Y-m-d\TH:i:s\Z');
-        $secretKey = "SK-RIvFqc5KUswVVfduSTJb";
+        try {
+            // Temukan anggota berdasarkan ID
+            $anggota = Anggota::findOrFail($id);
 
-        $requestBody = [
-            'order' => [
-                'amount' => $amount,
-                'invoice_number' => $invoiceNumber,
-            ],
-            'virtual_account_info' => [
-                'expired_time' => 5,
-                'reusable_status' => false,
-                'info1' => 'Merchant Demo Store',
-            ],
-            'customer' => [
-                'name' => 'Taufik Ismail',
-                'email' => 'taufik@example.com',
-            ],
-        ];
+            // Update status anggota
+            $anggota->status_ketua = $status;
+            $anggota->save(); // Simpan pembaruan status terlebih dahulu
 
-        if ($path === '/bni-virtual-account/v2/payment-code') {
-            $requestBody['virtual_account_info']['merchant_unique_reference'] = $merchantUniqueReference;
-        }
+            // Jika status_ketua adalah 'Diterima', kirim email konfirmasi
+            if ($anggota->status_ketua === 'Diterima') {
+                $email = $anggota->email_kantor; // Ambil email dari objek anggota
+                $user = User::where('email', $email)->first();
 
-        $digestValue = base64_encode(hash('sha256', json_encode($requestBody), true));
-        $componentSignature = "Client-Id:" . $clientId . "\n" . 
-                              "Request-Id:" . $requestId . "\n" .
-                              "Request-Timestamp:" . $requestDate . "\n" . 
-                              "Request-Target:" . $path . "\n" .
-                              "Digest:" . $digestValue;
+                $user = User::where('email', $email)->first();
+                if (!$user) {
+                    // 5. Buat password acak
+                    $random_pass = rand(111111, 999999);
 
-        $signature = base64_encode(hash_hmac('sha256', $componentSignature, $secretKey, true));
-        $headers = [
-            'Client-Id' => $clientId,
-            'Request-Id' => $requestId,
-            'Request-Timestamp' => $requestDate,
-            'Signature' => 'HMACSHA256=' . $signature,
-            'Content-Type' => 'application/json',
-        ];
+                    // 6. Simpan user baru ke tabel `users`
+                    $user = User::create([
+                        'name' => $anggota->nama,
+                        'email' => $email,
+                        'password' => Hash::make($random_pass),
+                        'role' => 'anggota',// Set 'role' sesuai kebutuhan, atau default sebagai 'user'
+                        'anggota_id' => $anggota->id, 
+                    ]);
 
-        $response = Http::withHeaders($headers)->post('https://api-sandbox.doku.com' . $path, $requestBody);
+                    // 7. Kirim email konfirmasi kepada anggota yang berisi username dan password baru
+                    Mail::to($email)->send(new Mailkonfir($email, $random_pass)); // Kirim email dengan username dan password baru
 
-        if ($response->successful()) {
-            return $response->json();
-        } else {
-            Log::error('Error fetching Virtual Account: ', [
-                'status' => $response->status(),
-                'body' => $response->body()
-            ]);
-
-            return [
-                'error' => 'Error fetching Virtual Account',
-                'message' => $response->body(),
-            ];
+                    return response()->json(['message' => 'Status berhasil diperbarui, akun berhasil dibuat, dan email berhasil dikirim!'], 200);
+                } else {
+                    return response()->json(['message' => 'Akun sudah ada!'], 400);
+                }
+            } else {
+                return response()->json(['message' => 'Status bukan Diterima!'], 400);
+            }
+        } catch (\Exception $e) {
+            return response()->json(['message' => 'Gagal memperbarui status!', 'error' => $e->getMessage()], 500);
         }
     }
 
-    public function handlePaymentStatus(Request $request)
+    public function ditolak($id, $status)
     {
-        Log::info('DOKU Webhook received', ['data' => $request->all()]);
+        try {
+            // Temukan anggota berdasarkan ID
+            $anggota = Anggota::findOrFail($id);
 
-        $invoiceNumber = $request->input('order.invoice_number');
-        $status = $request->input('transaction.status');
+            // Update status anggota
+            $anggota->status_ketua = $status;
+            $anggota->save();
 
-        Log::info('Invoice and Status received from DOKU', [
-            'invoice_number' => $invoiceNumber,
-            'status' => $status,
-        ]);
+            return response()->json(['message' => 'Status updated successfully!'], 200);
+        } catch (\Exception $e) {
+            return response()->json(['message' => 'Failed to update status!', 'error' => $e->getMessage()], 500);
+        }
+    }
 
-        $transaction = SimpananSukarela::where('invoice_number', $invoiceNumber)->first();
 
-        if ($transaction) {
-            Log::info('Transaction found in database', ['transaction' => $transaction]);
+
+public function updateApprovalKetuaSimpananSukarela($id, $status)
+{
+    try {
+        // Validasi status
+        if (!in_array($status, ['approved', 'rejected', 'pending'])) {
+            return response()->json(['message' => 'Invalid status provided!'], 400);
+        }
+
+        // Temukan data berdasarkan ID
+        $rekening = RekeningSimpananSukarela::findOrFail($id);
+
+        // Update status approval ketua
+        $rekening->approval_ketua = $status;
+        $rekening->status = $status;
+        $rekening->save();
+
+        // Jika status disetujui oleh ketua
+        if ($status === 'approved') {
+            // Cek data Simpanan Sukarela terkait
+            $simpanan = SimpananSukarela::where('rekening_simpanan_sukarela_id', $rekening->id)->first();
+
             
-            $transaction->update(['status' => $status]);
-            Log::info('Transaction status updated', ['status' => $status]);
+
+            if (!$simpanan) {
+                return response()->json([
+                    'message' => 'Simpanan Sukarela not found for this rekening!',
+                ], 404);
+            }
+
+            // Step 1: Get Access Token
+            $clientId = env('DOKU_CLIENT_ID');
+            $privateKey = str_replace("\\n", "\n", env('DOKU_PRIVATE_KEY'));
+
+            $timestamp = gmdate("Y-m-d\TH:i:s\Z");
+            $stringToSign = $clientId . "|" . $timestamp;
+
+            $privateKeyResource = openssl_pkey_get_private($privateKey);
+            openssl_sign($stringToSign, $signature, $privateKeyResource, OPENSSL_ALGO_SHA256);
+            $xSignature = base64_encode($signature);
+
+            $headers = [
+                'X-SIGNATURE: ' . $xSignature,
+                'X-TIMESTAMP: ' . $timestamp,
+                'X-CLIENT-KEY: ' . $clientId,
+                'Content-Type: application/json',
+            ];
+
+            $body = [
+                "grantType" => "client_credentials",
+                "additionalInfo" => ""
+            ];
+
+            $url = "https://api-sandbox.doku.com/authorization/v1/access-token/b2b";
+
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
+
+            $response = curl_exec($ch);
+            curl_close($ch);
+
+            $decodedResponse = json_decode($response, true);
+
+            // Log Access Token Response
+            Log::info("Access Token Response from DOKU: ", $decodedResponse);
+
+            if (!isset($decodedResponse['accessToken'])) {
+                throw new \Exception('Failed to get access token from DOKU');
+            }
+
+            $accessToken = $decodedResponse['accessToken'];
+
+            // Step 2: Create Virtual Account
+            $httpMethod = "POST";
+            $partnerId = env('DOKU_PARTNER_ID');
+            $channelId = 'H2H';
+            $externalId = uniqid();
+            $timestamp = now()->format('Y-m-d\TH:i:sP');
+
+            $endpointUrl = "/virtual-accounts/bi-snap-va/v1.1/transfer-va/create-va";
+            $fullUrl = 'https://api-sandbox.doku.com' . $endpointUrl;
+
+            $bankCode = $this->getBankCode($simpanan->bank);
+            $customerNumber = $this->getCustomerNumber($simpanan->bank);
+
+ 
+            // Proses nama bank
+            Log::info("Original Bank Name from Database: " . $simpanan->bank);
+
+            $bank = strtoupper(trim($simpanan->bank)); // Ubah semua huruf menjadi huruf besar dan hilangkan spasi
+
+            Log::info("Trimmed and Uppercase Bank Name: " . $bank);
+
+            // Periksa jika bank adalah Mandiri
+            if ($bank === 'MANDIRI') {
+                $channelBank = 'BANK_MANDIRI';
+            } else {
+                $channelBank = $bank; // Bank lain tetap sama
+            }
+
+            Log::info("Channel Bank: " . $channelBank);
+
+            // Validasi jika bank tidak ditemukan
+            if (empty($channelBank)) {
+                throw new \Exception('Invalid bank name for channel format');
+            }
+
+                        // Validasi nominal
+            if ($simpanan->nominal <= 0) {
+                Log::error("Invalid nominal value: " . $simpanan->nominal);
+                throw new \Exception('Invalid nominal amount. Must be greater than zero.');
+            }
+
+            // Format nominal menjadi desimal dengan dua digit
+            $totalAmountValue = number_format((float) $simpanan->nominal, 2, '.', '');
+
+            Log::info("Formatted totalAmount.value: " . $totalAmountValue);
+
+            $partnerServiceId = str_pad($bankCode, 8, " ", STR_PAD_LEFT);
+            $trxId = uniqid();
+            $expiredDate = now()->addDays(1)->format('Y-m-d\TH:i:sP');
+
+            $body = [
+                'partnerServiceId' => $partnerServiceId,
+                'customerNo' => $customerNumber,
+                'virtualAccountNo' => $partnerServiceId . $customerNumber,
+                "virtualAccountName" => $simpanan->user->name,
+                "virtualAccountEmail" => $simpanan->user->email,
+                "virtualAccountPhone" => $simpanan->user->phone,
+                'trxId' => $trxId,
+                'virtualAccountTrxType' => 'C',
+                "totalAmount" => [
+                    "value" => $totalAmountValue,
+                    "currency" => "IDR"
+                ],
+                'expiredDate' => $expiredDate,
+                'additionalInfo' => [
+                    'channel' => "VIRTUAL_ACCOUNT_" . $channelBank,
+                ]
+            ];
+
+            $requestBody = json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $hashedBody = hash('sha256', $requestBody);
+            // Log request body
+            Log::info("Request Body to DOKU: " . json_encode($body, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+            $stringToSign = $httpMethod . ":" . $endpointUrl . ":" . $accessToken . ":" . strtolower($hashedBody) . ":" . $timestamp;
+
+            $clientSecret = env('DOKU_SECRET_KEY');
+            $signature = base64_encode(hash_hmac('sha512', $stringToSign, $clientSecret, true));
+
+            $headers = [
+                'Authorization: Bearer ' . $accessToken,
+                'X-TIMESTAMP: ' . $timestamp,
+                'X-SIGNATURE: ' . $signature,
+                'X-PARTNER-ID: ' . $partnerId,
+                'X-EXTERNAL-ID: ' . $externalId,
+                'CHANNEL-ID: ' . $channelId,
+                'Content-Type: application/json',
+            ];
+
+            $ch = curl_init($fullUrl);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $requestBody);
+
+            $response = curl_exec($ch);
+            curl_close($ch);
+
+            $decodedResponse = json_decode($response, true);
+
+            // Log Create Virtual Account Response
+            Log::info("Create Virtual Account Response from DOKU: ", $decodedResponse);
+
+            if (!isset($decodedResponse['virtualAccountData']['virtualAccountNo'], $decodedResponse['virtualAccountData']['expiredDate'])) {
+                Log::error("Invalid virtual account data: ", $decodedResponse);
+                throw new \Exception('Failed to receive valid virtual account data from DOKU');
+            }
+                // Ambil data virtual account
+            $virtualAccountData = $decodedResponse['virtualAccountData'];
+
+            Log::info("Virtual Account Data: ", $virtualAccountData);
+
+            // Simpan data Virtual Account jika respon valid
+            $simpanan->virtual_account = $virtualAccountData['virtualAccountNo'];
+            $simpanan->expired_at = $virtualAccountData['expiredDate'];
+            $simpanan->status_payment = 'Menunggu Pembayaran';
+        }
+                    $simpanan->save();
+        return response()->json(['message' => 'Approval Ketua status updated and virtual account created successfully!'], 200);
+    } catch (\Exception $e) {
+        Log::error("Failed to process: " . $e->getMessage());
+        return response()->json(['message' => 'Failed to update status or create virtual account!', 'error' => $e->getMessage()], 500);
+    }
+}
+
+
+
+
+protected $bankCodes = [
+    'BNI' => '8492',
+    'BRI' => '13925',
+    'BCA' => '19008',
+    'MANDIRI' => '88899',
+    // Tambahkan mapping bank lainnya di sini
+];
+
+
+
+protected $customerNumbers = [
+    'BNI' => '3',
+    'BRI' => '6',
+    'BCA' => '0',
+    'MANDIRI' => '4',
+    // Tambahkan mapping bank lainnya di sini
+];
+
+
+
+
+protected function getCustomerNumber($bankName)
+{
+    $customerNumbers = $this->customerNumbers;
+
+    // Ubah nama bank menjadi uppercase untuk konsistensi
+    $bankName = strtoupper($bankName);
+
+    // Kembalikan nomor customer atau default jika tidak ditemukan
+    return $customerNumbers[$bankName] ?? null; // `null` jika bank tidak ditemukan
+}
+
+
+
+
+protected function getBankCode($bankName)
+{
+    $bankCodes = $this->bankCodes;
+
+    // Ubah nama bank menjadi uppercase untuk konsistensi
+    $bankName = strtoupper($bankName);
+
+    // Kembalikan kode bank atau default jika bank tidak ditemukan
+    return $bankCodes[$bankName] ?? null; // `null` jika bank tidak ditemukan
+}
+
+
+
+
+
+
+
+
+    public function updateStatusKetua($id, $status)
+    {
+        try {
+            // Temukan anggota berdasarkan ID
+            $anggota = Anggota::findOrFail($id);
+
+            // Update status dari ketua
+            $anggota->status_ketua = $status;
+            $anggota->save();
+
+            // Simpan perubahan ke database
+            $anggota->save();
+            // Cek status keseluruhan
+            $this->FinalStatus($anggota);
+
+            return response()->json(['message' => 'Status ketua updated successfully!'], 200);
+        } catch (\Exception $e) {
+            return response()->json(['message' => 'Failed to update status!', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function FinalStatus($anggota)
+    {
+
+        $anggota->status_ketua = 'Diterima';
+        // Logika untuk menentukan status final berdasarkan status manager dan ketua
+        if ($anggota) {
+            $email = $anggota->email_kantor; // Retrieve the email
+            $nama = $anggota->nama;
+            Mail::to($email)->send(new Mailkonfir($email)); // Assuming the email class is named Mailkonfir
         } else {
-            Log::error('Transaction not found for invoice_number', ['invoice_number' => $invoiceNumber]);
+            // Handle the case where no email is found
+            return back()->with('error', 'Anggota not found or does not have an email address.');
         }
 
-        return response()->json(['message' => 'Status updated']);
+        // Simpan perubahan ke database
+        $anggota->save();
     }
 
-    public function apiShowPaymentResult($invoice)
-{
-    $transaction = SimpananSukarela::where('invoice_number', $invoice)->first();
 
-    if ($transaction && $transaction->status === 'pending' && $transaction->expired_at < now()) {
-        $transaction->update(['status' => 'expired']);
+    // Fungsi lainnya tetap sama
+
+    public function email($id)
+    {
+        $email = Anggota::where('id', $id)->first()->email_kantor;
+
+        // Mail::to($email)->send(new information_registrasi($email));
     }
 
-    if (!$transaction) {
-        return response()->json(['error' => 'Transaction not found'], 404);
-    }
-
-    return response()->json([
-        'invoice_number' => $transaction->invoice_number,
-        'amount' => $transaction->amount,
-        'virtual_account' => $transaction->virtual_account_number,
-        'status' => $transaction->status,
-    ]);
-}
-
-
-    // Tambahan untuk simpanan berjangka
-
-    // Membuat simpanan berjangka baru dan mencatat transaksi
- public function createSimpananBerjangka(Request $request)
-{
-    // Ambil data dari request
-    $amount = $request->input('amount');
-    $jangkaWaktu = $request->input('jangka_waktu');
-    $jumlahJasa = $request->input('jumlah_jasa');
-    $path = $request->input('bank'); // `bank` diisi dengan `path` langsung
-    $isApi = $request->input('isApi', false);
-
-    $expiredTime = now()->addMinutes(5); // Set expiry time to 60 minutes
-
-    // Generate invoice number
-    $invoiceNumber = 'INV-' . date('Ymd') . '-' . Str::random(6);
-    $merchantUniqueReference = substr(Str::random(12), 0, 12);
-
-    // Simpan data baru ke dalam tabel SimpananBerjangka
-    $simpananBerjangka = SimpananBerjangka::create([
-        'invoice_number' => $invoiceNumber,
-        'amount' => $amount,
-        'jangka_waktu' => $jangkaWaktu,
-        'jumlah_jasa' => $jumlahJasa,
-        'bank' => $path, // Simpan path sebagai bank jika ini yang dimaksud
-        'status' => 'pending', // Set status awal menjadi pending
-        'expired_at' => $expiredTime,
-
-    ]);
-
-    // Panggil sendRequest untuk mendapatkan Virtual Account
-    $virtualAccountResponse = $this->sendRequest($amount, $invoiceNumber, $path, $merchantUniqueReference);
-
-    // Cek apakah ada error atau tidak
-    if (isset($virtualAccountResponse['error'])) {
-        $simpananBerjangka->update(['status' => 'failed']);
-        $virtualAccount = $virtualAccountResponse['message'];
-    } elseif (isset($virtualAccountResponse['virtual_account_info']['virtual_account_number'])) {
-        $simpananBerjangka->update([
-            'virtual_account_number' => $virtualAccountResponse['virtual_account_info']['virtual_account_number'],
-            'status' => 'pending'
-        ]);
-
-        $virtualAccount = $virtualAccountResponse['virtual_account_info']['virtual_account_number'];
-    } else {
-        $virtualAccount = 'Unexpected response format from API';
-        $simpananBerjangka->update(['status' => 'failed']);
-    }
-
-    if ($isApi) {
-        return response()->json([
-            'virtualAccount' => $virtualAccount,
-            'amount' => $amount,
-            'invoice_number' => $invoiceNumber,
+    public function homeketua()
+    {
+        return view('pages.ketua.home_ketua', [
+            'title' => 'Dashboard Ketua',
         ]);
     }
 
-    return response()->json([
-        'message' => 'Simpanan berjangka berhasil dibuat',
-        'simpanan_berjangka' => $simpananBerjangka,
-        'virtualAccount' => $virtualAccount
-    ], 201);
-}
+    // public function approveregisketua()
+    // {
+    //     return view('ketua.approve_regis_ketua', [
+    //         'anggota' => Anggota::all()
+    //     ]);
+    // }
+
+    public function detail_regis()
+    {
+        return view('pages.admin.detail_laporanregis', [
+            'title' => 'Data Anggota Registrasi',
+            'anggota' => Anggota::all()
+        ]);
+    }
+    public function updateStatusPinjamanKetua($id, $status)
+    {
+        try {
+            // Cari data pinjaman berdasarkan ID
+            $pinjaman = Pinjaman::findOrFail($id);
+
+            // Pastikan pinjaman sudah diterima oleh manager sebelum diproses
+            if ($pinjaman->status_manager !== 'Diterima') {
+                return response()->json(['message' => 'Pinjaman belum diterima oleh manager'], 400);
+            }
+
+            // Update status ketua
+            $pinjaman->status_ketua = $status;
+            $pinjaman->save();
+
+            return response()->json(['message' => 'Status ketua updated successfully!'], 200);
+        } catch (\Exception $e) {
+            return response()->json(['message' => 'Failed to update status!', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function countData($status)
+    {
+        if ($status == 'all') {
+            // Total semua data
+            $count = Anggota::count();
+        } elseif ($status == 'diterima') {
+            // Data yang diterima oleh ketua atau manager
+            $count = Anggota::where(function ($query) {
+                $query->where('status_ketua', 'Diterima')
+                    ->orWhere('status_manager', 'Diterima');
+            })->count();
+        } elseif ($status == 'pengajuan') {
+            // Data yang masih dalam proses (belum diterima/ditolak oleh ketua atau manager)
+            $count = Anggota::whereNull('status_ketua')
+                ->orWhereNull('status_manager')
+                ->where(function ($query) {
+                    $query->where('status_ketua', '!=', 'Diterima')
+                        ->where('status_ketua', '!=', 'Ditolak')
+                        ->orWhere('status_manager', '!=', 'Diterima');
+                })->count();
+        } elseif ($status == 'ditolak') {
+            // Data yang ditolak oleh ketua atau manager
+            $count = Anggota::where(function ($query) {
+                $query->where('status_ketua', 'Ditolak');
+            })->count();
+        }
+
+        // Kembalikan hasil dalam format JSON
+        return response()->json(['count' => $count]);
+    }
 
 
-    // Mengambil data simpanan berjangka berdasarkan nomor invoice
-      public function getSimpananBerjangka($invoice)
+    public function countDataRekeningSimpananSukarela($status)
 {
-    Log::info("Attempting to fetch Simpanan Berjangka with invoice: $invoice");
-
-    $simpananBerjangka = SimpananBerjangka::where('invoice_number', $invoice)->first();
-
-    if (!$simpananBerjangka) {
-        Log::error("Simpanan Berjangka not found for invoice: $invoice");
-        return response()->json(['error' => 'Simpanan berjangka atau transaksi tidak ditemukan'], 404);
+    if ($status == 'all') {
+        // Total semua data
+        $count = RekeningSimpananSukarela::count();
+    } elseif ($status == 'diterima') {
+        // Data yang diterima oleh ketua atau manager
+        $count = RekeningSimpananSukarela::where(function ($query) {
+            $query->where('approval_ketua', 'approved')
+                ->orWhere('approval_manager', 'approved');
+        })->count();
+    } elseif ($status == 'pengajuan') {
+        // Data yang masih dalam proses (belum diterima/ditolak oleh ketua atau manager)
+        $count = RekeningSimpananSukarela::where('approval_ketua', 'pending')
+            ->orWhere('approval_manager', 'pending')
+            ->count();
+    } elseif ($status == 'ditolak') {
+        // Data yang ditolak oleh ketua atau manager
+        $count = RekeningSimpananSukarela::where(function ($query) {
+            $query->where('approval_ketua', 'rejected')
+                ->orWhere('approval_manager', 'rejected');
+        })->count();
     }
 
-    // Cek jika simpanan sudah expired dan update status
-    if ($simpananBerjangka->status === 'pending' && $simpananBerjangka->expired_at < now()) {
-        Log::info("Expired time passed for invoice: {$simpananBerjangka->invoice_number}. Updating status to expired.");
-        
-        $simpananBerjangka->status = 'expired';
-    if ($simpananBerjangka->save()) {
-    Log::info("Status updated to expired for invoice: {$simpananBerjangka->invoice_number}");   
-    } else {
-    Log::error("Failed to update status to expired for invoice: {$simpananBerjangka->invoice_number}");
-    }
-
-    }
-
-    // Kembalikan data simpanan berjangka dalam bentuk JSON
-    return response()->json([
-        'simpanan_berjangka' => [
-            'invoice_number' => $simpananBerjangka->invoice_number,
-            'amount' => $simpananBerjangka->amount,
-            'status' => $simpananBerjangka->status,
-            'expired_at' => $simpananBerjangka->expired_at,
-            'created_at' => $simpananBerjangka->created_at,
-            'updated_at' => $simpananBerjangka->updated_at,
-        ],
-    ]);
-}
-
+    // Kembalikan hasil dalam format JSON
+    return response()->json(['count' => $count]);
 }
 
 
+};

@@ -287,7 +287,7 @@ public function updateApprovalKetuaSimpananSukarela($id, $status)
             // Simpan data Virtual Account jika respon valid
             $simpanan->virtual_account = $virtualAccountData['virtualAccountNo'];
             $simpanan->expired_at = $virtualAccountData['expiredDate'];
-            $simpanan->status_payment = 'Menunggu Pembayaran';
+            $simpanan->status_payment = 'Pending';
         }
                     $simpanan->save();
         return response()->json(['message' => 'Approval Ketua status updated and virtual account created successfully!'], 200);

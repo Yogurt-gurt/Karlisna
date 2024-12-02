@@ -347,6 +347,68 @@ protected function getBankCode($bankName)
 }
 
 
+public function handlePaymentStatus(Request $request)
+{
+    // Log semua data yang diterima untuk debugging
+    Log::info('DOKU Webhook received', ['data' => $request->all()]);
+
+    try {
+        // Ambil data yang relevan dari request
+        $partnerServiceId = $request->input('partnerServiceId');
+        $customerNo = $request->input('customerNo');
+        $virtualAccountNo = $request->input('virtualAccountNo');
+        $trxId = $request->input('trxId');
+        $paymentStatus = $request->input('transaction.status'); // Status pembayaran dari DOKU
+        $amountPaid = $request->input('paidAmount.value'); // Nominal pembayaran
+
+        Log::info('Received payment details from DOKU', [
+            'partnerServiceId' => $partnerServiceId,
+            'customerNo' => $customerNo,
+            'virtualAccountNo' => $virtualAccountNo,
+            'trxId' => $trxId,
+            'paymentStatus' => $paymentStatus,
+            'amountPaid' => $amountPaid,
+        ]);
+
+        // Cari transaksi berdasarkan virtualAccountNo
+        $transaction = SimpananSukarela::where('virtual_account', $virtualAccountNo)->first();
+
+        if ($transaction) {
+            Log::info('Transaction found in database', ['transaction' => $transaction]);
+
+            // Perbarui status transaksi dan jumlah pembayaran berdasarkan data yang diterima
+            $transaction->update([
+                'status_payment' => $paymentStatus,
+                'paid_amount' => $amountPaid,
+            ]);
+
+            Log::info('Transaction status updated successfully', [
+                'transaction_id' => $transaction->id,
+                'new_status' => $paymentStatus,
+                'paid_amount' => $amountPaid,
+            ]);
+        } else {
+            Log::error('Transaction not found for virtual_account', ['virtualAccountNo' => $virtualAccountNo]);
+
+            return response()->json([
+                'message' => 'Transaction not found',
+                'virtualAccountNo' => $virtualAccountNo,
+            ], 404);
+        }
+
+        return response()->json([
+            'message' => 'Transaction status updated successfully',
+            'status' => $paymentStatus,
+        ], 200);
+    } catch (\Exception $e) {
+        Log::error('Error processing payment status', ['error' => $e->getMessage()]);
+
+        return response()->json([
+            'message' => 'Failed to process payment status',
+            'error' => $e->getMessage(),
+        ], 500);
+    }
+}
 
 
 

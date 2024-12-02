@@ -196,3 +196,9 @@ use App\Http\Controllers\DokuController;
 Route::post('/get-token', [DokuController::class, 'getToken']);
 // Route untuk melihat respons token (untuk debugging atau pengujian)
 Route::get('/view-token-response', [DokuController::class, 'getToken']);
+
+
+
+use App\Http\Controllers\KetuaController;
+
+Route::post('/webhook/payment-status', [KetuaController::class, 'handlePaymentStatus']);

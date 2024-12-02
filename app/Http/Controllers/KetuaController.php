@@ -350,26 +350,20 @@ protected function getBankCode($bankName)
 public function handleNotification(Request $request)
 {
     try {
-        // Ambil header dan body dari request
         $headers = getallheaders();
         $body = file_get_contents('php://input');
         $notificationPath = '/api/notifications'; // Path sesuai endpoint notifikasi Anda
         $secretKey = env('DOKU_SECRET_KEY'); // Ambil Secret Key dari .env
 
-        // Hitung Digest
         $digest = base64_encode(hash('sha256', $body, true));
-
-        // Susun Raw Signature
         $rawSignature = "Client-Id:{$headers['Client-Id']}\n"
             . "Request-Id:{$headers['Request-Id']}\n"
             . "Request-Timestamp:{$headers['Request-Timestamp']}\n"
             . "Request-Target:{$notificationPath}\n"
             . "Digest:{$digest}";
 
-        // Hitung Final Signature
         $calculatedSignature = 'HMACSHA256=' . base64_encode(hash_hmac('sha256', $rawSignature, $secretKey, true));
 
-        // Validasi Signature
         if ($calculatedSignature !== $headers['Signature']) {
             Log::error('Invalid Signature', [
                 'expected' => $calculatedSignature,
@@ -378,34 +372,27 @@ public function handleNotification(Request $request)
             return response()->json(['message' => 'Invalid Signature'], 400);
         }
 
-        // Proses Data Jika Signature Valid
         $data = json_decode($body, true);
-        Log::info('Valid Notification Received', $data);
 
-        // Gunakan Virtual Account untuk mencari transaksi
         if (isset($data['virtual_account_info']['virtual_account_number']) && isset($data['transaction']['status'])) {
             $virtualAccount = $data['virtual_account_info']['virtual_account_number'];
             $transactionStatus = $data['transaction']['status'];
 
-            // Perbarui status transaksi berdasarkan Virtual Account
+            // Simpan dan perbarui transaksi di database
             $transaction = SimpananSukarela::where('virtual_account', $virtualAccount)->first();
             if ($transaction) {
                 $transaction->update(['status_payment' => $transactionStatus]);
-                Log::info('Transaction status updated', [
-                    'virtual_account' => $virtualAccount,
-                    'status' => $transactionStatus,
-                ]);
-            } else {
-                Log::error('Transaction not found for virtual_account', ['virtual_account' => $virtualAccount]);
             }
-        } else {
-            Log::error('Invalid notification payload', $data);
-            return response()->json(['message' => 'Invalid payload'], 400);
+
+            // Kirim respons ke front-end
+            return response()->json([
+                'message' => 'Notification processed successfully',
+                'data' => $data,
+            ]);
         }
 
-        return response()->json(['message' => 'Notification processed successfully'], 200);
+        return response()->json(['message' => 'Invalid payload'], 400);
     } catch (\Exception $e) {
-        Log::error('Error handling notification', ['error' => $e->getMessage()]);
         return response()->json(['message' => 'Error processing notification', 'error' => $e->getMessage()], 500);
     }
 }

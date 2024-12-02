@@ -201,6 +201,6 @@ Route::get('/view-token-response', [DokuController::class, 'getToken']);
 
 use App\Http\Controllers\KetuaController;
 
-Route::any('/payment-notification', [KetuaController::class, 'handleNotification'])->middleware('auth:sanctum');
+Route::any('/payment-notification', [KetuaController::class, 'handleNotification']);
 
 

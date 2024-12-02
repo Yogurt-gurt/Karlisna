@@ -350,37 +350,52 @@ protected function getBankCode($bankName)
 
 public function handleNotification(Request $request)
     {
-        Log::info('Notification received', ['data' => $request->all()]);
+        Log::info('DOKU Payment Notification received:', $request->all());
 
-        // Validasi signature untuk memastikan notifikasi dari DOKU
-        $calculatedSignature = hash_hmac('sha256', $request->input('order.invoice_number'), env('DOKU_SECRET_KEY'));
+        // Validasi Signature
+        $httpMethod = "POST";
+        $resourcePath = "/api/payment-notification"; // Path endpoint
+        $clientId = $request->header('Client-Id');
+        $requestTimestamp = $request->header('Request-Timestamp');
+        $body = json_encode($request->all(), JSON_UNESCAPED_SLASHES);
+        $bodyHash = hash('sha256', strtolower($body));
+
+        // String to sign
+        $stringToSign = "{$httpMethod}:{$resourcePath}:{$clientId}:{$bodyHash}:{$requestTimestamp}";
+        $secretKey = env('DOKU_SECRET_KEY'); // Kunci rahasia Anda dari DOKU
+        $calculatedSignature = base64_encode(hash_hmac('sha256', $stringToSign, $secretKey, true));
+
+        // Bandingkan signature
         if ($request->header('Signature') !== $calculatedSignature) {
             return response()->json(['message' => 'Invalid signature'], 400);
         }
 
-        // Proses data notifikasi
-        $virtualAccount = $request->input('virtual_account_info.virtual_account_number');
+        // Ambil data dari notifikasi
+        $invoiceNumber = $request->input('order.invoice_number');
         $transactionStatus = $request->input('transaction.status');
+        $virtualAccount = $request->input('virtual_account_info.virtual_account_number');
+        $transactionDate = $request->input('transaction.date');
 
-        // Temukan transaksi di database
-        $transaction = SimpananSukarela::where('virtual_account', $virtualAccount)->first();
+        // Temukan simpanan berdasarkan nomor simpanan
+        $simpanan = SimpananSukarela::where('no_simpanan', $invoiceNumber)->first();
 
-        if (!$transaction) {
-            Log::error('Transaction not found', ['virtual_account' => $virtualAccount]);
-            return response()->json(['message' => 'Transaction not found'], 404);
+        if (!$simpanan) {
+            Log::error('Simpanan not found:', ['no_simpanan' => $invoiceNumber]);
+            return response()->json(['message' => 'Simpanan not found'], 404);
         }
 
         // Perbarui status pembayaran
-        $transaction->update([
-            'status_payment' => $transactionStatus === 'SUCCESS' ? 'Paid' : 'Failed',
+        $simpanan->update([
+            'virtual_account' => $virtualAccount,
+            'expired_at' => $transactionStatus === 'SUCCESS' ? now()->addDays(1) : $simpanan->expired_at,
+            'status_payment' => $transactionStatus === 'SUCCESS' ? 'Lunas' : 'Gagal',
         ]);
 
-        Log::info('Transaction updated', ['transaction' => $transaction]);
+        Log::info('Simpanan updated:', ['simpanan' => $simpanan]);
 
         // Kirim respons sukses ke DOKU
         return response()->json(['message' => 'Notification processed successfully'], 200);
     }
-
 
 
     public function updateStatusKetua($id, $status)

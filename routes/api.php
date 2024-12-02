@@ -201,4 +201,5 @@ Route::get('/view-token-response', [DokuController::class, 'getToken']);
 
 use App\Http\Controllers\KetuaController;
 
-Route::post('/webhook/payment-status', [KetuaController::class, 'handlePaymentStatus']);
+Route::post('/notifications', [KetuaController::class, 'handleNotification']);
+

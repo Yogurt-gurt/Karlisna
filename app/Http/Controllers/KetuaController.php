@@ -350,9 +350,10 @@ protected function getBankCode($bankName)
 public function handleNotification(Request $request)
 {
     try {
+        // Ambil header dan body dari request
         $headers = getallheaders();
         $body = file_get_contents('php://input');
-        $notificationPath = '/api/notifications'; // Path notifikasi Anda
+        $notificationPath = '/api/notifications'; // Path sesuai endpoint notifikasi Anda
         $secretKey = env('DOKU_SECRET_KEY'); // Ambil Secret Key dari .env
 
         // Hitung Digest
@@ -381,25 +382,31 @@ public function handleNotification(Request $request)
         $data = json_decode($body, true);
         Log::info('Valid Notification Received', $data);
 
-        // Lakukan operasi berdasarkan status pembayaran
-        if (isset($data['transaction']['status']) && isset($data['order']['invoice_number'])) {
-            $invoiceNumber = $data['order']['invoice_number'];
+        // Gunakan Virtual Account untuk mencari transaksi
+        if (isset($data['virtual_account_info']['virtual_account_number']) && isset($data['transaction']['status'])) {
+            $virtualAccount = $data['virtual_account_info']['virtual_account_number'];
             $transactionStatus = $data['transaction']['status'];
 
-            // Perbarui status di database
-            $transaction = SimpananSukarela::where('invoice_number', $invoiceNumber)->first();
+            // Perbarui status transaksi berdasarkan Virtual Account
+            $transaction = SimpananSukarela::where('virtual_account', $virtualAccount)->first();
             if ($transaction) {
                 $transaction->update(['status_payment' => $transactionStatus]);
-                Log::info('Transaction status updated', ['invoice' => $invoiceNumber, 'status' => $transactionStatus]);
+                Log::info('Transaction status updated', [
+                    'virtual_account' => $virtualAccount,
+                    'status' => $transactionStatus,
+                ]);
             } else {
-                Log::error('Transaction not found for invoice', ['invoice' => $invoiceNumber]);
+                Log::error('Transaction not found for virtual_account', ['virtual_account' => $virtualAccount]);
             }
+        } else {
+            Log::error('Invalid notification payload', $data);
+            return response()->json(['message' => 'Invalid payload'], 400);
         }
 
         return response()->json(['message' => 'Notification processed successfully'], 200);
     } catch (\Exception $e) {
         Log::error('Error handling notification', ['error' => $e->getMessage()]);
-        return response()->json(['message' => 'Error processing notification'], 500);
+        return response()->json(['message' => 'Error processing notification', 'error' => $e->getMessage()], 500);
     }
 }
 

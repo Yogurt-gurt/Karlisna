@@ -286,7 +286,7 @@ public function updateApprovalKetuaSimpananSukarela($id, $status)
 
 
             // Permintaan ke DOKU untuk notifikasi status pembayaran
-            $notificationUrl = "https://revisi001.vahry.my.id/v1.1/transfer-va/payment";
+            $notificationUrl = "https://revisi001.vahry.my.id/v1/transfer-va/payment";
 
             // Ambil nominal dari database dan format menjadi desimal dengan dua digit
             $paidAmountValue = number_format((float) $simpanan->nominal, 2, '.', '');
@@ -315,7 +315,7 @@ public function updateApprovalKetuaSimpananSukarela($id, $status)
             Log::info("Notification Request Body to DOKU: " . $notificationRequestBody);
 
             // Buat signature untuk permintaan notifikasi
-            $notificationStringToSign = $httpMethod . ":" . "/v1.1/transfer-va/payment" . ":" . $accessToken . ":" . hash('sha256', $notificationRequestBody) . ":" . $timestamp;
+            $notificationStringToSign = $httpMethod . ":" . "/v1/transfer-va/payment" . ":" . $accessToken . ":" . hash('sha256', $notificationRequestBody) . ":" . $timestamp;
 
             $notificationSignature = base64_encode(hash_hmac('sha512', $notificationStringToSign, env('DOKU_SECRET_KEY'), true));
             $timestamps = now()->format('Y-m-d\TH:i:sP'); 

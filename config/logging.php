@@ -51,21 +51,18 @@ return [
     */
 
     'channels' => [
-        // Default stack configuration
         'stack' => [
             'driver' => 'stack',
-            'channels' => ['single', 'stderr'], // Gabungkan file dan stderr
+            'channels' => ['single'],
             'ignore_exceptions' => false,
         ],
 
-        // Single file log
         'single' => [
             'driver' => 'single',
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
         ],
 
-        // Daily log files
         'daily' => [
             'driver' => 'daily',
             'path' => storage_path('logs/laravel.log'),
@@ -73,7 +70,6 @@ return [
             'days' => 14,
         ],
 
-        // Log ke Slack
         'slack' => [
             'driver' => 'slack',
             'url' => env('LOG_SLACK_WEBHOOK_URL'),
@@ -82,7 +78,6 @@ return [
             'level' => env('LOG_LEVEL', 'critical'),
         ],
 
-        // Log ke Papertrail
         'papertrail' => [
             'driver' => 'monolog',
             'level' => env('LOG_LEVEL', 'debug'),
@@ -94,7 +89,6 @@ return [
             ],
         ],
 
-        // Log ke stderr
         'stderr' => [
             'driver' => 'monolog',
             'level' => env('LOG_LEVEL', 'debug'),
@@ -105,25 +99,21 @@ return [
             ],
         ],
 
-        // Log ke syslog
         'syslog' => [
             'driver' => 'syslog',
             'level' => env('LOG_LEVEL', 'debug'),
         ],
 
-        // Log ke errorlog
         'errorlog' => [
             'driver' => 'errorlog',
             'level' => env('LOG_LEVEL', 'debug'),
         ],
 
-        // Log null (tidak menyimpan log)
         'null' => [
             'driver' => 'monolog',
             'handler' => NullHandler::class,
         ],
 
-        // Log untuk keadaan darurat
         'emergency' => [
             'path' => storage_path('logs/laravel.log'),
         ],

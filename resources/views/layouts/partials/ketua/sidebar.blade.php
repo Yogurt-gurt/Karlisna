@@ -34,7 +34,7 @@
             </a>
             <div class="collapse" id="charts">
                 <ul class="nav flex-column sub-menu">
-                    <li class="nav-item"> <a class="nav-link" href="pages/charts/chartjs.html">Approvel Simpanan</a>
+                    <li class="nav-item"> <a class="nav-link" href="{{ route('data.simpanan.sukarela.ketua') }}">Approvel Simpanan</a>
                     </li>
                 </ul>
             </div>

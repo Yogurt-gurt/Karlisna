@@ -1,4 +1,4 @@
-@if (auth()->user()->roles == 'manager')
+@if (auth()->user()->roles == 'ketua')
 @extends('layouts.dashboard-layout')
 @section('title', $title)
 @section('content')
@@ -6,8 +6,8 @@
     <div class="search-bar">
         <input type="text" placeholder="Search" class="form-control mr-2" style="width: 200px;" />
         <div class="ml-auto d-flex">
-            <button type="button" class="btn btn-success" onclick="updateStatusSimpanan('approved')">Terima</button>
-            <button type="button" class="btn btn-danger" onclick="updateStatusSimpanan('rejected')">Tolak</button>
+            <button type="button" class="btn btn-success" onclick="updateStatusPinjaman('approved')">Terima</button>
+            <button type="button" class="btn btn-danger" onclick="updateStatusPinjaman('rejected')">Tolak</button>
         </div>
         @csrf   
     </div>
@@ -53,7 +53,7 @@
                     </td>
                     <td>{{ $data->no_simpanan }}</td>
                     <td>{{ $data->user->name }}</td>
-                    <td>Rp. {{ number_format($data->nominal, 2) }}</td>
+                    <td>Rp. {{ number_format($data->nominal, 2) }}</td>     
                     <td>{{ $data->bank }}</td>
                     <td>{{ $data->rekeningSimpananSukarela->status ?? 'N/A' }}</td>
                     <td>{{ $data->status_payment }}</td>
@@ -108,7 +108,7 @@
 </div>
 
 <script>
-function updateStatusSimpanan(status) {
+function updateStatusPinjaman(status) {
     console.log("Status yang diterima: ", status); // Debugging status
 
     const confirmMessage = status === 'approved' ? 
@@ -140,7 +140,7 @@ function updateStatusSimpanan(status) {
                 console.log("ID yang dikirim: ", id); // Debugging ID
 
                 $.ajax({
-                    url: "{{ route('status.simpanan.sukarela', ['id' => 'ID', 'status' => 'STATUS']) }}"
+                    url: "{{ route('update.approval.ketua', ['id' => 'ID', 'status' => 'STATUS']) }}"
                         .replace('ID', id)
                         .replace('STATUS', status),
                     type: "POST",

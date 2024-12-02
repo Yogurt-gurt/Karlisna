@@ -10,6 +10,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use App\Models\Pinjaman;
+use App\Models\RekeningSimpananSukarela;
+use App\Models\SimpananSukarela;
 use Illuminate\Support\Facades\Log;
 
 class KetuaController extends Controller
@@ -21,6 +23,19 @@ class KetuaController extends Controller
             'pinjamans' => Pinjaman::all()
         ]);
     }
+
+
+    public function indexsimpanansukarela()
+    {
+        return view('pages.ketua.simpanan.index', [
+            'title' => 'Data Pengajuan Simpanan Sukarela',
+            'simpananSukarelas' => SimpananSukarela::with('rekeningSimpananSukarela', 'user')->get(),
+        ]);
+
+    }
+
+
+
     public function diterima($id, $status)
     {
         try {
@@ -80,6 +95,264 @@ class KetuaController extends Controller
             return response()->json(['message' => 'Failed to update status!', 'error' => $e->getMessage()], 500);
         }
     }
+
+
+
+public function updateApprovalKetuaSimpananSukarela($id, $status)
+{
+    try {
+        // Validasi status
+        if (!in_array($status, ['approved', 'rejected', 'pending'])) {
+            return response()->json(['message' => 'Invalid status provided!'], 400);
+        }
+
+        // Temukan data berdasarkan ID
+        $rekening = RekeningSimpananSukarela::findOrFail($id);
+
+        // Update status approval ketua
+        $rekening->approval_ketua = $status;
+        $rekening->status = $status;
+        $rekening->save();
+
+        // Jika status disetujui oleh ketua
+        if ($status === 'approved') {
+            // Cek data Simpanan Sukarela terkait
+            $simpanan = SimpananSukarela::where('rekening_simpanan_sukarela_id', $rekening->id)->first();
+
+            
+
+            if (!$simpanan) {
+                return response()->json([
+                    'message' => 'Simpanan Sukarela not found for this rekening!',
+                ], 404);
+            }
+
+            // Step 1: Get Access Token
+            $clientId = env('DOKU_CLIENT_ID');
+            $privateKey = str_replace("\\n", "\n", env('DOKU_PRIVATE_KEY'));
+
+            $timestamp = gmdate("Y-m-d\TH:i:s\Z");
+            $stringToSign = $clientId . "|" . $timestamp;
+
+            $privateKeyResource = openssl_pkey_get_private($privateKey);
+            openssl_sign($stringToSign, $signature, $privateKeyResource, OPENSSL_ALGO_SHA256);
+            $xSignature = base64_encode($signature);
+
+            $headers = [
+                'X-SIGNATURE: ' . $xSignature,
+                'X-TIMESTAMP: ' . $timestamp,
+                'X-CLIENT-KEY: ' . $clientId,
+                'Content-Type: application/json',
+            ];
+
+            $body = [
+                "grantType" => "client_credentials",
+                "additionalInfo" => ""
+            ];
+
+            $url = "https://api-sandbox.doku.com/authorization/v1/access-token/b2b";
+
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
+
+            $response = curl_exec($ch);
+            curl_close($ch);
+
+            $decodedResponse = json_decode($response, true);
+
+            // Log Access Token Response
+            Log::info("Access Token Response from DOKU: ", $decodedResponse);
+
+            if (!isset($decodedResponse['accessToken'])) {
+                throw new \Exception('Failed to get access token from DOKU');
+            }
+
+            $accessToken = $decodedResponse['accessToken'];
+
+            // Step 2: Create Virtual Account
+            $httpMethod = "POST";
+            $partnerId = env('DOKU_PARTNER_ID');
+            $channelId = 'H2H';
+            $externalId = uniqid();
+            $timestamp = now()->format('Y-m-d\TH:i:sP');
+
+            $endpointUrl = "/virtual-accounts/bi-snap-va/v1.1/transfer-va/create-va";
+            $fullUrl = 'https://api-sandbox.doku.com' . $endpointUrl;
+
+            $bankCode = $this->getBankCode($simpanan->bank);
+            $customerNumber = $this->getCustomerNumber($simpanan->bank);
+
+ 
+            // Proses nama bank
+            Log::info("Original Bank Name from Database: " . $simpanan->bank);
+
+            $bank = strtoupper(trim($simpanan->bank)); // Ubah semua huruf menjadi huruf besar dan hilangkan spasi
+
+            Log::info("Trimmed and Uppercase Bank Name: " . $bank);
+
+            // Periksa jika bank adalah Mandiri
+            if ($bank === 'MANDIRI') {
+                $channelBank = 'BANK_MANDIRI';
+            } else {
+                $channelBank = $bank; // Bank lain tetap sama
+            }
+
+            Log::info("Channel Bank: " . $channelBank);
+
+            // Validasi jika bank tidak ditemukan
+            if (empty($channelBank)) {
+                throw new \Exception('Invalid bank name for channel format');
+            }
+
+                        // Validasi nominal
+            if ($simpanan->nominal <= 0) {
+                Log::error("Invalid nominal value: " . $simpanan->nominal);
+                throw new \Exception('Invalid nominal amount. Must be greater than zero.');
+            }
+
+            // Format nominal menjadi desimal dengan dua digit
+            $totalAmountValue = number_format((float) $simpanan->nominal, 2, '.', '');
+
+            Log::info("Formatted totalAmount.value: " . $totalAmountValue);
+
+            $partnerServiceId = str_pad($bankCode, 8, " ", STR_PAD_LEFT);
+            $trxId = uniqid();
+            $expiredDate = now()->addDays(1)->format('Y-m-d\TH:i:sP');
+
+            $body = [
+                'partnerServiceId' => $partnerServiceId,
+                'customerNo' => $customerNumber,
+                'virtualAccountNo' => $partnerServiceId . $customerNumber,
+                "virtualAccountName" => $simpanan->user->name,
+                "virtualAccountEmail" => $simpanan->user->email,
+                "virtualAccountPhone" => $simpanan->user->phone,
+                'trxId' => $trxId,
+                'virtualAccountTrxType' => 'C',
+                "totalAmount" => [
+                    "value" => $totalAmountValue,
+                    "currency" => "IDR"
+                ],
+                'expiredDate' => $expiredDate,
+                'additionalInfo' => [
+                    'channel' => "VIRTUAL_ACCOUNT_" . $channelBank,
+                ]
+            ];
+
+            $requestBody = json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $hashedBody = hash('sha256', $requestBody);
+            // Log request body
+            Log::info("Request Body to DOKU: " . json_encode($body, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+            $stringToSign = $httpMethod . ":" . $endpointUrl . ":" . $accessToken . ":" . strtolower($hashedBody) . ":" . $timestamp;
+
+            $clientSecret = env('DOKU_SECRET_KEY');
+            $signature = base64_encode(hash_hmac('sha512', $stringToSign, $clientSecret, true));
+
+            $headers = [
+                'Authorization: Bearer ' . $accessToken,
+                'X-TIMESTAMP: ' . $timestamp,
+                'X-SIGNATURE: ' . $signature,
+                'X-PARTNER-ID: ' . $partnerId,
+                'X-EXTERNAL-ID: ' . $externalId,
+                'CHANNEL-ID: ' . $channelId,
+                'Content-Type: application/json',
+            ];
+
+            $ch = curl_init($fullUrl);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $requestBody);
+
+            $response = curl_exec($ch);
+            curl_close($ch);
+
+            $decodedResponse = json_decode($response, true);
+
+            // Log Create Virtual Account Response
+            Log::info("Create Virtual Account Response from DOKU: ", $decodedResponse);
+
+            if (!isset($decodedResponse['virtualAccountData']['virtualAccountNo'], $decodedResponse['virtualAccountData']['expiredDate'])) {
+                Log::error("Invalid virtual account data: ", $decodedResponse);
+                throw new \Exception('Failed to receive valid virtual account data from DOKU');
+            }
+                // Ambil data virtual account
+            $virtualAccountData = $decodedResponse['virtualAccountData'];
+
+            Log::info("Virtual Account Data: ", $virtualAccountData);
+
+            // Simpan data Virtual Account jika respon valid
+            $simpanan->virtual_account = $virtualAccountData['virtualAccountNo'];
+            $simpanan->expired_at = $virtualAccountData['expiredDate'];
+            $simpanan->status_payment = 'Menunggu Pembayaran';
+        }
+                    $simpanan->save();
+        return response()->json(['message' => 'Approval Ketua status updated and virtual account created successfully!'], 200);
+    } catch (\Exception $e) {
+        Log::error("Failed to process: " . $e->getMessage());
+        return response()->json(['message' => 'Failed to update status or create virtual account!', 'error' => $e->getMessage()], 500);
+    }
+}
+
+
+
+
+protected $bankCodes = [
+    'BNI' => '8492',
+    'BRI' => '13925',
+    'BCA' => '19008',
+    'MANDIRI' => '88899',
+    // Tambahkan mapping bank lainnya di sini
+];
+
+
+
+protected $customerNumbers = [
+    'BNI' => '3',
+    'BRI' => '6',
+    'BCA' => '0',
+    'MANDIRI' => '4',
+    // Tambahkan mapping bank lainnya di sini
+];
+
+
+
+
+protected function getCustomerNumber($bankName)
+{
+    $customerNumbers = $this->customerNumbers;
+
+    // Ubah nama bank menjadi uppercase untuk konsistensi
+    $bankName = strtoupper($bankName);
+
+    // Kembalikan nomor customer atau default jika tidak ditemukan
+    return $customerNumbers[$bankName] ?? null; // `null` jika bank tidak ditemukan
+}
+
+
+
+
+protected function getBankCode($bankName)
+{
+    $bankCodes = $this->bankCodes;
+
+    // Ubah nama bank menjadi uppercase untuk konsistensi
+    $bankName = strtoupper($bankName);
+
+    // Kembalikan kode bank atau default jika bank tidak ditemukan
+    return $bankCodes[$bankName] ?? null; // `null` jika bank tidak ditemukan
+}
+
+
+
+
+
+
+
+
     public function updateStatusKetua($id, $status)
     {
         try {
@@ -201,4 +474,35 @@ class KetuaController extends Controller
         // Kembalikan hasil dalam format JSON
         return response()->json(['count' => $count]);
     }
+
+
+    public function countDataRekeningSimpananSukarela($status)
+{
+    if ($status == 'all') {
+        // Total semua data
+        $count = RekeningSimpananSukarela::count();
+    } elseif ($status == 'diterima') {
+        // Data yang diterima oleh ketua atau manager
+        $count = RekeningSimpananSukarela::where(function ($query) {
+            $query->where('approval_ketua', 'approved')
+                ->orWhere('approval_manager', 'approved');
+        })->count();
+    } elseif ($status == 'pengajuan') {
+        // Data yang masih dalam proses (belum diterima/ditolak oleh ketua atau manager)
+        $count = RekeningSimpananSukarela::where('approval_ketua', 'pending')
+            ->orWhere('approval_manager', 'pending')
+            ->count();
+    } elseif ($status == 'ditolak') {
+        // Data yang ditolak oleh ketua atau manager
+        $count = RekeningSimpananSukarela::where(function ($query) {
+            $query->where('approval_ketua', 'rejected')
+                ->orWhere('approval_manager', 'rejected');
+        })->count();
+    }
+
+    // Kembalikan hasil dalam format JSON
+    return response()->json(['count' => $count]);
+}
+
+
 };

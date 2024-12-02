@@ -9,22 +9,39 @@ class SimpananSukarela extends Model
 {
     use HasFactory;
 
-    // Nama tabel
+    // Nama tabel (jika berbeda dengan default)
     protected $table = 'simpanan_sukarela';
 
-    // Kolom yang dapat diisi (mass-assignable)
+    // Kolom yang bisa diisi (mass assignable)
     protected $fillable = [
-        'no_simpanan',      // Nomor simpanan
-        'user_id',          // Relasi ke user
-        'bank',             // Nama bank
-        'nominal',          // Nominal simpanan
-        'status_manager',   // Status dari manager
-        'status_ketua',     // Status dari ketua
+        'no_simpanan',
+        'user_id',
+        'rekening_simpanan_sukarela_id',
+        'bank',
+        'nominal',
+        'virtual_account',
+        'expired_at',
+        'status_payment',
     ];
 
-    // Relasi ke model User
+    // Kolom yang akan di-cast secara otomatis
+    protected $casts = [
+        'expired_at' => 'datetime',
+    ];
+
+    /**
+     * Relasi ke model User.
+     */
     public function user()
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    /**
+     * Relasi ke model RekeningSimpananSukarela.
+     */
+    public function rekeningSimpananSukarela()
+    {
+        return $this->belongsTo(RekeningSimpananSukarela::class, 'rekening_simpanan_sukarela_id');
     }
 }

@@ -8,6 +8,8 @@ use App\Models\Pinjaman;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use App\Mail\information_registrasi;
+use App\Models\RekeningSimpananSukarela;
+use App\Models\SimpananSukarela;
 use Illuminate\Support\Facades\Mail;
 
 class ManagerController extends Controller
@@ -19,6 +21,17 @@ class ManagerController extends Controller
         'pinjamans' => Pinjaman::with('rekening')->get()
     ]);
     }
+
+        public function indexsimpanansukarela()
+    {
+        return view('pages.manager.simpanan.index', [
+            'title' => 'Data Pengajuan Simpanan Sukarela',
+            'simpananSukarelas' => SimpananSukarela::with('rekeningSimpananSukarela', 'user')->get(),
+        ]);
+
+    }
+
+    
 
     public function index()
     {
@@ -65,6 +78,32 @@ class ManagerController extends Controller
             return response()->json(['message' => 'Failed to update status!', 'error' => $e->getMessage()], 500);
         }
     }
+
+
+    public function updateApprovalManagerSimpananSukarela($id, $status)
+    {
+        try {
+            // Validasi status
+            if (!in_array($status, ['approved', 'rejected', 'pending'])) {
+                return response()->json(['message' => 'Invalid status provided!'], 400);
+            }
+
+            // Temukan data berdasarkan ID
+            $rekening = RekeningSimpananSukarela::findOrFail($id);
+
+            // Update status approval manager
+            $rekening->approval_manager = $status;
+            $rekening->save();
+
+            return response()->json(['message' => 'Approval Manager status updated successfully!'], 200);
+        } catch (\Exception $e) {
+            return response()->json(['message' => 'Failed to update Approval Manager status!', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+
+
+
 
     // Fungsi lainnya tetap sama
     public function email($id)
@@ -115,4 +154,33 @@ class ManagerController extends Controller
         // Kembalikan hasil dalam format JSON
         return response()->json(['count' => $count]);
     }
+
+    public function countDataRekeningSimpananSukarela($status)
+{
+    if ($status == 'all') {
+        // Total semua data
+        $count = RekeningSimpananSukarela::count();
+    } elseif ($status == 'diterima') {
+        // Data yang diterima oleh ketua atau manager
+        $count = RekeningSimpananSukarela::where(function ($query) {
+            $query->where('approval_ketua', 'approved')
+                ->orWhere('approval_manager', 'approved');
+        })->count();
+    } elseif ($status == 'pengajuan') {
+        // Data yang masih dalam proses (belum diterima/ditolak oleh ketua atau manager)
+        $count = RekeningSimpananSukarela::where('approval_ketua', 'pending')
+            ->orWhere('approval_manager', 'pending')
+            ->count();
+    } elseif ($status == 'ditolak') {
+        // Data yang ditolak oleh ketua atau manager
+        $count = RekeningSimpananSukarela::where(function ($query) {
+            $query->where('approval_ketua', 'rejected')
+                ->orWhere('approval_manager', 'rejected');
+        })->count();
+    }
+
+    // Kembalikan hasil dalam format JSON
+    return response()->json(['count' => $count]);
+}
+
 };

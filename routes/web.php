@@ -143,11 +143,14 @@ Route::prefix('admin')->middleware('auth', 'role:admin')->group(function () {
 Route::prefix('manager')->middleware('auth', 'role:manager')->group(function () {
     Route::get('/home-manager', [ManagerController::class, 'homemanager'])->name('home-manager');
     Route::get('/data-pinjaman', [ManagerController::class, 'indexpinjaman'])->name('data.pinjaman');
+    Route::get('/data-simpanan-sukarela', [ManagerController::class, 'indexsimpanansukarela'])->name('data.simpanan.sukarela');
     Route::get('/approve-manager', [ManagerController::class, 'index'])->name('approve-manager');
     Route::post('/verif_berhasil', [KetuaController::class, 'FinalStatus'])->name('FinalStatus');
     Route::post('/pinjaman/{id}/{status}', [ManagerController::class, 'updateStatusPinjaman'])->name('pinjaman.status');
     Route::post('/approve/{id}/{status}', [ManagerController::class, 'updateStatus'])->name('approve.update-status-manager');
+    Route::post('/update-status-simpanan/{id}/{status}', [ManagerController::class, 'updateApprovalManagerSimpananSukarela'])->name('status.simpanan.sukarela');
     Route::get('/count-data/{status}', [ManagerController::class, 'countData']);
+    Route::get('/count-data-simpanan-sukarela/{status}', [ManagerController::class, 'countDataRekeningSimpananSukarela']);
     Route::get('/send-registration-email/{id}', [ManagerController::class, 'email'])->name('send.email');
 });
 
@@ -156,6 +159,7 @@ Route::prefix('ketua')->middleware('auth', 'role:ketua')->group(function () {
     Route::get('/home-ketua', [KetuaController::class, 'homeketua'])->name('home-ketua');
     Route::get('/pinjaman-ketua', [KetuaController::class, 'pinjaman'])->name('ketua.pinjaman');
     Route::get('/approve-ketua', [AnggotaController::class, 'index2'])->name('approve-ketua');
+    Route::get('/data-simpanan-sukarela-ketua', [KetuaController::class, 'indexsimpanansukarela'])->name('data.simpanan.sukarela.ketua');
     Route::post('/ketua/diterima/{id}/{status}', [KetuaController::class, 'diterima'])->name('approve.diterima-ketua');
     Route::post('/ketua/ditolak/{id}/{status}', [KetuaController::class, 'ditolak'])->name('approve.ditolak-ketua');
 
@@ -165,7 +169,10 @@ Route::prefix('ketua')->middleware('auth', 'role:ketua')->group(function () {
     Route::get('/count-data/{status}', [KetuaController::class, 'countData']);
     // Route::post('/pinjaman/approve/{id}/{status}', [KetuaController::class, 'approvePinjaman'])->name('approve.pinjaman.diterima');
     // routes/web.php
+    Route::get('/count-data-simpanan-sukarela/{status}', [KetuaController::class, 'countDataRekeningSimpananSukarela']);
     Route::post('update-status-pinjaman-ketua/{id}/{status}', [KetuaController::class, 'updateStatusPinjamanKetua'])->name('update.status.ketua');
+    Route::post('/update-approval-ketua/{id}/{status}', [KetuaController::class, 'updateApprovalKetuaSimpananSukarela'])
+    ->name('update.approval.ketua');
 });
 
 

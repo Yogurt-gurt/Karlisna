@@ -31,7 +31,7 @@
             </a>
             <div class="collapse" id="charts">
                 <ul class="nav flex-column sub-menu">
-                    <li class="nav-item"> <a class="nav-link" href="pages/charts/chartjs.html">Approvel Simpanan</a></li>
+                    <li class="nav-item"> <a class="nav-link" href="{{ route('data.simpanan.sukarela') }}">Approvel Simpanan</a></li>
                 </ul>
             </div>
         </li>
@@ -43,7 +43,7 @@
             </a>
             <div class="collapse" id="form-elements">
                 <ul class="nav flex-column sub-menu">
-                    <li class="nav-item"><a class="nav-link" href="{{ route('data.pinjaman') }}">Data Pinjaman</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ route('data.pinjaman') }}">Approvel Pinjaman</a></li>
                 </ul>
             </div>
         </li>

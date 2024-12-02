@@ -96,9 +96,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/simpanan-sukarela/create', [SimpananSukarelaController::class, 'store']); // Buat simpanan sukarela baru
     Route::put('/simpanan-sukarela/{id}', [SimpananSukarelaController::class, 'update']); // Perbarui simpanan sukarela
     Route::delete('/simpanan-sukarela/{id}', [SimpananSukarelaController::class, 'destroy']); // Hapus simpanan sukarela
-});
+    Route::get('rekening-sukarela/check', [SimpananSukarelaController::class, 'checkRekening']);
 
-;
+});
 
 use App\Http\Controllers\PengajuanPinjamanController;
 
